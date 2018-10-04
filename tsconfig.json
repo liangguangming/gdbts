@@ -1,0 +1,9 @@
+{
+    "compilerOptions": {
+        "alwaysStrict": true,
+        "charset": "utf8",
+        "inlineSourceMap": true,
+        "module": "commonjs",
+        "target": "es2015"
+    }
+}

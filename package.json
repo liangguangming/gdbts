@@ -1,0 +1,16 @@
+{
+  "name": "mi2Parse",
+  "version": "1.0.0",
+  "main": "index.js",
+  "author": "ming",
+  "license": "MIT",
+  "dependencies": {
+    "@types/node": "^10.11.3",
+    "electron-log": "^2.2.17",
+    "ts-node": "^7.0.1",
+    "typescript": "^3.1.1"
+  },
+  "scripts": {
+    "start": "ts-node src/gdb.ts"
+  }
+}
