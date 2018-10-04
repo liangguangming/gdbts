@@ -41,3 +41,12 @@ export interface Thread {
     core?: string; 
 
 }
+
+export interface Variable {
+    name: string;
+    value: string;
+    numchild: string;
+    type: string;
+    "thread-id": string;
+    has_more?: string;
+}

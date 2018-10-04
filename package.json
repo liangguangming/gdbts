@@ -1,7 +1,7 @@
 {
-  "name": "mi2Parse",
+  "name": "gdbts",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "gdb.ts",
   "author": "ming",
   "license": "MIT",
   "dependencies": {

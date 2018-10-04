@@ -2,7 +2,7 @@ import { ChildProcess, spawn } from "child_process";
 import { Parser } from "./parse/mi2Parser";
 import { Record, IAsyncRecord, AsyncState } from "./parse/outputModel";
 import * as fs from 'fs';
-import { Breakpoint, BreakpointData, Frame, Thread } from "./gdbModel";
+import { Breakpoint, BreakpointData, Frame, Thread, Variable } from "./gdbModel";
 import logger from './log';
 import { EventEmitter } from "events";
 
@@ -326,6 +326,80 @@ class GDB extends EventEmitter {
         })
     }
 
+    public fetchVariable(threadId?: number, frameLevel?: number): Promise<Variable[]> {
+        threadId = threadId? threadId: 1;
+        frameLevel = frameLevel? frameLevel: 0;
+        let command = `stack-list-variables --thread ${threadId} --frame ${frameLevel}  --simple-values`;
+        return new Promise((res, rej) => {
+            this.sendMICommand(command).then((record) => {
+                let variables: Variable[] = [];
+                if (record.resultRecord.resultClass === 'done') {
+                    let vars: [] = record.resultRecord.result['variables'];
+                    let all: Promise<Variable>[] = [];
+                    vars.forEach(variable => {
+                        all.push(this.createVariable(variable['name']));
+                    })
+                    Promise.all(all).then((vars) => {
+                        variables = vars;
+                        res(variables);
+                    }, rej)
+                } else {
+                    rej('获取变量错误');
+                }
+            }, rej)
+        })
+    }
+
+    public createVariable(name: string): Promise<Variable> {
+        let command = `var-create ${name} * ${name}`;
+        return new Promise((res, rej) => {
+            this.sendMICommand(command).then((record) => {
+                if (record.resultRecord.resultClass === 'done') {
+                    let variable: Variable = {
+                        name: record.resultRecord.result['name'],
+                        value: record.resultRecord.result['value'],
+                        type: record.resultRecord.result['type'],
+                        numchild: record.resultRecord.result['numchild'],
+                        'thread-id': record.resultRecord.result['thread-id'],
+                        has_more: record.resultRecord.result['has_more']
+                    };
+                    res(variable);
+                } else {
+                    rej(`创建 ${name} 对象失败`);
+                }
+            }, rej)
+        });
+    }
+
+    public getChildVariables(name: string) {
+
+        let command = `var-list-children --all-values ${name}`;
+        logger.warn('child_var: ', command);
+        return new Promise((res, rej) => {
+            this.sendMICommand(command).then((record) => {
+                if (record.resultRecord.resultClass === 'done') {
+                    let variables: [] = record.resultRecord.result['children'];
+                    let childVariables: Variable[] = [];
+                    variables.forEach(variable => {
+                        let childVariable: Variable = {
+                            name: variable['exp'],
+                            value: variable['value'],
+                            type: variable['type'],
+                            numchild: variable['numchild'],
+                            'thread-id': variable['thread-id'],
+                            has_more: variable['has_more']
+                        }
+
+                        childVariables.push(childVariable);
+                    })
+                    res(childVariables)
+                } else {
+                    rej(`获取 ${name} 的变量失败`);
+                }
+            }, rej)
+        });
+    }
+
     public printfAllBreakpoints() {
         logger.info(this.breakpoints);
     }
@@ -339,8 +413,6 @@ class GDB extends EventEmitter {
                 if (record.resultRecord.resultClass === 'done') {
                     threads = record.resultRecord.result['threads'];
                     currentThreadId = record.resultRecord.result['current-thread-id'];
-                    logger.warn('threads: ', threads);
-                    logger.warn('currentThreadId: ', currentThreadId);
                     let threadContext = {
                         threads,
                         currentThreadId
@@ -396,6 +468,16 @@ gdb.addListener('stop', (event) => {
         logger.warn('thread: ', threadContext['threads'][0]);
     }, (error) => {
         logger.warn('frame失败：', JSON.stringify(error));
+    });
+    gdb.fetchVariable().then((variables) => {
+        variables.forEach(variable => {
+            logger.warn('fet__variable: ', variable);
+            if (variable.numchild && Number(variable.numchild) > 0) {
+                gdb.getChildVariables(variable.name).then((vars) => {
+                    logger.warn('fet___childVariables: ', JSON.stringify(vars));
+                });
+            }
+        })
     });
 });
 
