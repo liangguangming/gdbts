@@ -1,16 +1,70 @@
 {
   "name": "gdbts",
   "version": "1.0.0",
-  "main": "gdb.ts",
   "author": "ming",
+  "publisher": "ming",
+  "repository": {
+    "type": "git",
+		"url": "https://github.com/liangguangming/gdbts.git"
+  },
   "license": "MIT",
+  "engines": {
+    "vscode": "^1.27.0"
+  },
   "dependencies": {
     "@types/node": "^10.11.3",
     "electron-log": "^2.2.17",
     "ts-node": "^7.0.1",
-    "typescript": "^3.1.1"
+    "typescript": "^3.1.1",
+    "vscode": "^1.1.21",
+    "vscode-debugadapter": "^1.32.1"
+	},
+	"activationEvents": [
+		"onDebug",
+		"onLanguage:c"
+	],
+	"main": "./out/extension",
+  "contributes": {
+    "debuggers": [
+			{
+				"type": "gdb",
+				"program": "./out/gdbSession.js",
+				"runtime": "node",
+				"label": "GDBming",
+				"configurationAttributes": {
+					"launch": {
+						"required": [
+							"target","gdbpath"
+						],
+						"properties": {
+							"target": {
+								"type": "string",
+								"description": "Path of executable"
+							},
+							"gdbpath": {
+								"type": "string",
+								"description": "Path to the gdb executable or the command if in PATH",
+								"default": "gdb"
+							}
+						}
+					}
+				},
+				"initialConfigurations": [
+					{
+						"name": "Debug",
+						"type": "gdb",
+						"request": "launch",
+						"target": "./xxx.exe",
+						"gdbpath": "./gdb.exe"
+					}
+				]
+			}
+		]
   },
-  "scripts": {
-    "start": "ts-node src/gdb.ts"
+  "scripts": {   
+    "compile": "tsc -p ./src",
+		"postinstall": "node ./node_modules/vscode/bin/install",
+		"start": "ts-node src/gdb.ts",
+		"test": "ts-node src/test/test.ts"
   }
 }
