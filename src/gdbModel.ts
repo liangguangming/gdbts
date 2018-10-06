@@ -27,6 +27,7 @@ export interface Frame {
     func?: string;
     addr: string;
     file?: string;
+    fullname?: string;
     line?: string;
     from?: string;
 }
@@ -43,6 +44,7 @@ export interface Thread {
 }
 
 export interface Variable {
+    parentName?: string;
     name: string;
     value: string;
     numchild: string;

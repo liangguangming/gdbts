@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import { Breakpoint, BreakpointData, Frame, Thread, Variable } from "./gdbModel";
 import logger from './log';
 import { EventEmitter } from "events";
+import {Readable} from "stream"
 
 const GDB_CRCL = `(gdb) \r\n`;
 
@@ -19,16 +20,29 @@ export class GDB extends EventEmitter {
     private token: number = 1;
     private pendingRequest: Map<number, Function> = new Map();
     private breakpoints: Breakpoint[] = new Array();
+    private bufferData: string;
 
     constructor(gdbProcess: ChildProcess) {
         super();
         this.gdbProcess = gdbProcess;
+        this.bufferData = '';
         this.gdbProcess.stdout.on('data', this.handleData.bind(this));
     }
 
     private handleData(data: Buffer) {
-        let outputs = data.toString().split(GDB_CRCL);
-        outputs.forEach((info) => {
+        this.bufferData += data.toString();
+        let outputs = this.bufferData.split(GDB_CRCL);
+        let valifyData: string[] = [];
+        if (outputs.length > 1) {
+            let valifyLength = GDB_CRCL.length * (outputs.length - 1);
+            for(let i = 0;i<outputs.length - 1;i++) {
+                valifyLength += outputs[i].length;
+                valifyData.push(outputs[i]);
+            }
+
+            this.bufferData = this.bufferData.substr(valifyLength);
+        }
+        valifyData.forEach((info) => {
             let record = Parser.parse(info);
             this.handleEvent(record);
             if (record.resultRecord && record.resultRecord.token) {
@@ -81,31 +95,39 @@ export class GDB extends EventEmitter {
 
     private sendMICommand(command: string): Promise<Record> {
 
+        let temptoken = this.token++;
+
         return new Promise((res, rej) => {
-            this.gdbProcess.stdin.write(`${this.token}-${command}\n`, (error) => {
-                if (error) {
-                    logger.error(`${command}: ${JSON.stringify(error)}`);
-                    rej(error);
+            try {
+                logger.info(`gdbRequest: ${temptoken}-${command}\n`);
+                this.gdbProcess.stdin.write(`${temptoken}-${command}\n`, (error) => {
+                    if (error) {
+                        logger.error(`${command}: ${JSON.stringify(error)}`);
+                        rej(error);
+                    }
+                });
+                let callBack = (recordNode: Record) => {
+                    if (recordNode.resultRecord.resultClass === 'error') {
+    
+                        rej(recordNode.resultRecord.result['msg']);
+                        logger.info(`gdbResponse error: ${temptoken}-${command}, error ${recordNode.resultRecord.result['msg']}`);
+                    } else {
+                        res(recordNode);
+                        logger.info(`gdbResponse sucessful: ${temptoken}-${command}\n`);
+                    }
                 }
-            });
-            let callBack = (recordNode: Record) => {
-                if (recordNode.resultRecord.resultClass === 'error') {
-                    rej(recordNode.resultRecord.result['msg']);
-                } else {
-                    res(recordNode);
-                }
+    
+                this.pendingRequest.set(temptoken, callBack);
+                setTimeout(() => {
+                    if (this.pendingRequest.has(temptoken)) {
+                        this.pendingRequest.delete(temptoken);
+                        rej(`sendCommand: ${command} timeout!!! please reply the command.`);
+                    }
+                }, 1000);
+            } catch (error) {
+                logger.error('sendmicommmand: ', error);
             }
 
-            this.pendingRequest.set(this.token, callBack);
-            let tempToken = this.token;
-            setTimeout(() => {
-                if (this.pendingRequest.has(tempToken)) {
-                    this.pendingRequest.delete(tempToken);
-                    rej(`sendCommand: ${command} timeout!!! please reply the command.`);
-                }
-            }, 1000);
-
-            this.token++;
         });
     }
 
@@ -119,6 +141,7 @@ export class GDB extends EventEmitter {
 
     public exit() {
         if (this.gdbProcess) {
+            logger.info('gdb进程退出')
             this.gdbProcess.kill();
             this.gdbProcess = null;
         }
@@ -156,6 +179,19 @@ export class GDB extends EventEmitter {
         });
     }
 
+    public clearBreakpointByfilePath(path: string) {
+        let toRemove: Promise<boolean>[] = [];
+        this.breakpoints.forEach(bp => {
+            logger.info('bp.path: ', bp.fullname, 'path: ', path);
+            if (bp.fullname.toLocaleLowerCase() === path.toLocaleLowerCase()) {
+                toRemove.push(this.removeBreakpoint(bp.num));
+            }
+        })
+        return new Promise((res, rej) => {
+            Promise.all(toRemove).then(res,rej);
+        })
+    }
+
     public addBreakpoint(breakPointData: BreakpointData): Promise<[boolean, Breakpoint|string]> {
         let command = 'break-insert';
         if (!breakPointData.enabled) {
@@ -170,8 +206,7 @@ export class GDB extends EventEmitter {
         if (breakPointData.address) {
             command += ` *${breakPointData.address}`;
         } else if (breakPointData.filePath && breakPointData.lineNum) {
-            let filePath = breakPointData.filePath.replace(/\\/g, '\\\\');
-            command += ` \"${filePath}:${breakPointData.lineNum}\"`;
+            command += ` \"${breakPointData.filePath}:${breakPointData.lineNum}\"`;
             logger.info('command: ', command);
         } else {
             let error = '断点参数设置错误';
@@ -378,29 +413,39 @@ export class GDB extends EventEmitter {
         });
     }
 
-    public getChildVariables(name: string) {
+    public getChildVariables(name: string): Promise<Variable[]> {
 
         let command = `var-list-children --all-values ${name}`;
-        logger.warn('child_var: ', command);
         return new Promise((res, rej) => {
             this.sendMICommand(command).then((record) => {
+                logger.info('gdb获取自变量成功');
+                let childVariables: Variable[] = [];
                 if (record.resultRecord.resultClass === 'done') {
-                    let variables: [] = record.resultRecord.result['children'];
-                    let childVariables: Variable[] = [];
-                    variables.forEach(variable => {
-                        let childVariable: Variable = {
-                            name: variable['exp'],
-                            value: variable['value'],
-                            type: variable['type'],
-                            numchild: variable['numchild'],
-                            'thread-id': variable['thread-id'],
-                            has_more: variable['has_more']
+                    try {
+                        // logger.info('children: ', record.resultRecord.result['children']);
+                        if (!record.resultRecord.result['children']) {
+                            logger.error('childrenERROR record: ', JSON.stringify(record));
                         }
-
-                        childVariables.push(childVariable);
-                    })
+                        let variables: [] = record.resultRecord.result['children'];
+                        variables.forEach(variable => {
+                            let childVariable: Variable = {
+                                parentName: variable['name'],
+                                name: variable['exp'],
+                                value: variable['value'],
+                                type: variable['type'],
+                                numchild: variable['numchild'],
+                                'thread-id': variable['thread-id'],
+                                has_more: variable['has_more']
+                            }
+    
+                            childVariables.push(childVariable);
+                        })
+                    } catch (error) {
+                        logger.error('gdb获取自变量,error: ',error);
+                    }
                     res(childVariables)
                 } else {
+                    logger.error(`获取 ${name} 的变量失败`);
                     rej(`获取 ${name} 的变量失败`);
                 }
             }, rej)
