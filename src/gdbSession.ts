@@ -19,6 +19,11 @@ const LOCALREFERENCE = 512*512;
  *  100: 启动程序失败
  *  12: 设置断点失败
  *  13: 抓取变量失败
+ *  14: 继续执行失败
+ *  15: 下一步执行失败
+ * 	16: 跳入执行失败
+ *  17： 跳出执行失败
+ *  18: getScope fail
  */
     
 class GDBSession extends DebugSession {
@@ -26,6 +31,7 @@ class GDBSession extends DebugSession {
 	private gdb: GDB;
 	private requestNum = 1;
 	private variableMap: Map<number,string> = new Map();
+	private rootVariablesName: string[] = [];
 
 	constructor() {
 		super();
@@ -214,18 +220,25 @@ class GDBSession extends DebugSession {
 	// 抓取变量范围
 	protected scopesRequest(response: DebugProtocol.ScopesResponse, args: DebugProtocol.ScopesArguments): void {
 		let frameId = args.frameId;
-		// select frame
-		let scope: DebugProtocol.Scope = {
-			name: 'Locals',
-			variablesReference: LOCALREFERENCE,
-			expensive: false
-		}
-		response.body = {
-			scopes: [scope]
-		}
-
-		this.sendResponse(response);
-		logger.info('scopes 响应成功');
+		// 先清理数据再响应
+		let all: Promise<any>[] = [];
+		this.rootVariablesName.forEach((name) => {
+			all.push(this.gdb.deleteVariable(name));
+		})
+		Promise.all(all).then(()=> {
+			let scope: DebugProtocol.Scope = {
+				name: 'Locals',
+				variablesReference: LOCALREFERENCE,
+				expensive: false
+			}
+			response.body = {
+				scopes: [scope]
+			}
+			this.sendResponse(response);
+			logger.info('scopes 响应成功')
+		}, (error) => {
+			this.sendErrorResponse(response, 18, error);
+		});
 	}
 
 	// 抓取变量
@@ -237,6 +250,7 @@ class GDBSession extends DebugSession {
 			this.gdb.fetchVariable().then((vars) => {
 				vars.forEach(v => {
 					let variable: Variable = null;
+					this.rootVariablesName.push(v.name);
 					if (Number(v.numchild)>0) {
 						let ref = Number(LOCALREFERENCE + `${count++}`);
 						variable = new Variable(v.name,v.value,	ref);
@@ -289,6 +303,51 @@ class GDBSession extends DebugSession {
 			this.sendErrorResponse(response,11,'没有抓取到相关数据');
 		}
 	}	
+
+	// 继续执行
+	protected continueRequest(response: DebugProtocol.ContinueResponse, args: DebugProtocol.ContinueArguments): void {
+		this.gdb.continue().then(()=> {
+			this.sendResponse(response);
+		},(error) => {
+			this.sendErrorResponse(response, 14, error);
+		})
+	}
+
+	// 下一步执行
+	protected nextRequest(response: DebugProtocol.NextResponse, args: DebugProtocol.NextArguments): void {
+		this.gdb.next().then(()=> {
+			this.sendResponse(response);
+		}, (error) => {
+			this.sendErrorResponse(response, 15, error);
+		})
+	}
+
+	// 跳入执行
+	protected stepInRequest(response: DebugProtocol.StepInResponse, args: DebugProtocol.StepInArguments): void {
+		this.gdb.stepIn().then(()=> {
+			this.sendResponse(response);
+		}, (error) => {
+			this.sendErrorResponse(response, 16, error);
+		})
+	}
+
+	// 跳出执行
+    protected stepOutRequest(response: DebugProtocol.StepOutResponse, args: DebugProtocol.StepOutArguments): void {
+		this.gdb.stepOut().then(()=> {
+			this.sendResponse(response);
+		}, (error) => {
+			this.sendErrorResponse(response, 17, error);
+		})
+	}
+
+	// 暂停执行
+	protected pauseRequest(response: DebugProtocol.PauseResponse, args: DebugProtocol.PauseArguments): void {
+		this.gdb.interrupt().then(()=> {
+			this.sendResponse(response);
+		}, (error) => {
+			this.sendErrorResponse(response, 18, error);
+		})
+	}
 
 	protected dispatchRequest(request: DebugProtocol.Request): void {
 		logger.warn('request: ', this.requestNum,request.command);

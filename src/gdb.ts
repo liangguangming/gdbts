@@ -179,6 +179,20 @@ export class GDB extends EventEmitter {
         });
     }
 
+    public deleteVariable(name: string): Promise<any> {
+        if (!name) {
+            return Promise.reject('not a varialbe name');
+        }
+        let command = `var-delete ${name}`;
+        this.sendMICommand(command).then((record) => {
+            if (record.resultRecord.resultClass === 'done') {
+                return Promise.resolve(true);
+            } else {
+                return Promise.reject(false);
+            }
+        }, error => Promise.reject(error));
+    }
+
     public clearBreakpointByfilePath(path: string) {
         let toRemove: Promise<boolean>[] = [];
         this.breakpoints.forEach(bp => {
