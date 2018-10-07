@@ -41,7 +41,9 @@ class GDBSession extends DebugSession {
 		if (this.gdb) {
 			this.gdb.addListener('stop', (event) => {
 				let stopEvent = new StoppedEvent(event['reason'], Number(event['thread-id']));
-				logger.info('触发断点停止，thread: ', stopEvent);
+				stopEvent.body['allThreadsStopped'] = event['stopped-threads'] === 'all';
+
+				logger.info('触发断点停止，thread: ', JSON.stringify(stopEvent));
 				this.sendEvent(stopEvent);
 			});
 			this.gdb.addListener('exit', (event) => {
@@ -66,6 +68,8 @@ class GDBSession extends DebugSession {
 	protected initializeRequest(response: DebugProtocol.InitializeResponse, args: DebugProtocol.InitializeRequestArguments): void {
 		logger.info('初始化请求成功');
 		response.body.supportsConfigurationDoneRequest = true;
+		response.body.supportsConditionalBreakpoints = true;
+		response.body.supportsHitConditionalBreakpoints = true;
 		this.sendResponse(response);
 	}
 
@@ -105,8 +109,8 @@ class GDBSession extends DebugSession {
 			let breakpoint: gdbModel.BreakpointData = {
 				lineNum: bp.line,
 				filePath: breakpointPath,
-				condition: bp.condition,
-				ignore: bp.hitCondition? Number(bp.hitCondition): null,
+				condition: bp.condition? bp.condition.replace(/\s/g, ''): null,
+				ignore: bp.hitCondition? Number(bp.hitCondition) - 1: null,
 				enabled: true,
 				address: null
 			}
@@ -159,25 +163,26 @@ class GDBSession extends DebugSession {
 		let start = args.startFrame;
 		let levels = args.levels;
 		logger.info('stackTraceRequest','args: ',JSON.stringify(args));
-		this.gdb.getAllStackFrame().then((frames) => {
+		this.gdb.getAllStackFrame(threadId).then((frames) => {
 			let stackFrames: DebugProtocol.StackFrame[] = [];
-			let id = 1;
 			frames.forEach(frame => {
-				let source: DebugProtocol.Source = {
-					name: frame.file,
-					path: frame.fullname
+				let source: DebugProtocol.Source;
+				if (frame.line && frame.fullname) {
+					source = {
+						name: frame.file,
+						path: frame.fullname
+					}
+					source.path = source.path.replace(/\\\\/g, '\\');
+					logger.info('source.path: ', source.path);
 				}
-				source.path = source.path.replace(/\\\\/g, '\\');
-				logger.info('source.path: ', source.path);
 				let stackFrame: DebugProtocol.StackFrame = {
-					line: Number(frame.line),
+					line: frame.line? Number(frame.line):null,
 					name: frame.func,
-					id: id,
+					id: frame.level? Number(frame.level): null,
 					column: 0,
 					source: source
 				}
 				stackFrames.push(stackFrame);
-				id++;
 			});
 			logger.info('stack: ', JSON.stringify(stackFrames));
 			response.body = {
@@ -477,4 +482,9 @@ class GDBSession extends DebugSession {
 		}
 	}
 }
+process.on('uncaughtException', function (err) {
+    logger.error('An uncaught error occurred!');
+    logger.error(err.stack);
+});
+
 GDBSession.run(GDBSession);

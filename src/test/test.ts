@@ -10,7 +10,7 @@ let gdb = create(options);
 
 gdb.addListener('stop', (event) => {
     logger.warn('触发监听停止事件', JSON.stringify(event));
-    gdb.getAllStackFrame().then((stack) => {
+    gdb.getAllStackFrame(1).then((stack) => {
         logger.warn('frame成功');
         logger.warn(stack[0]['addr']);
     }, (error) => {
@@ -58,7 +58,7 @@ gdb.setApplicationPath('C:\\Users\\ming\\Desktop\\testGdb\\main.exe').then((reco
     Promise.reject();
 }).then(() => {
     let breakpointData = {
-        filePath: "C:\\Users\\ming\\Desktop\\testGdb\\main.c",
+        filePath: "C:\\\\Users\\\\ming\\\\Desktop\\\\testGdb\\\\main.c",
         lineNum: 20,
         condition: null,
         enabled: true,

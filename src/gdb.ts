@@ -339,8 +339,11 @@ export class GDB extends EventEmitter {
         });
     }
 
-    public getAllStackFrame(): Promise<Frame[]> {
-        let command = 'stack-list-frames';
+    public getAllStackFrame(threadId): Promise<Frame[]> {
+        if (!threadId) {
+            threadId === 1;
+        }
+        let command = `stack-list-frames --thread ${threadId}`;
         let stack: Frame[] = [];
         return new Promise((res, rej) => {
             this.sendMICommand(command).then(record => {
