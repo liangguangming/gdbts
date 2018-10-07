@@ -24,6 +24,7 @@ const LOCALREFERENCE = 512*512;
  * 	16: 跳入执行失败
  *  17： 跳出执行失败
  *  18: getScope fail
+ *  19: 校验断点失败
  */
     
 class GDBSession extends DebugSession {
@@ -116,38 +117,47 @@ class GDBSession extends DebugSession {
 			}
 			breakPointDatas.push(breakpoint);
 		})
-		// 清理以前的断点
-		this.gdb.clearBreakpointByfilePath(breakpointPath).then(()=> {
-
-			// 新增断点
-			let all: Promise<[boolean , string|gdbModel.Breakpoint]>[] = [];
-			breakPointDatas.forEach(bp => {
-				all.push(this.gdb.addBreakpoint(bp));
-			})
-
-			// 如果有一个为false,都会被拒绝
-			Promise.all(all).then((bps) => {
-				let breakpoints: Breakpoint[] = [];
-				bps.forEach(tup => {
-					logger.info('tup: ', JSON.stringify(tup))
-					let breakpoint: Breakpoint = null;
-					if (tup[0]) {
-						let line = (tup[1] as gdbModel.Breakpoint).line;
-						// let source: Source = new Source()
-						breakpoint = new Breakpoint(true, line);
+		// 完成校验断点有效行
+		this.gdb.verifyLine(breakpointPath).then(() => {
+			// 清理以前的断点
+			this.gdb.clearBreakpointByfilePath(breakpointPath).then(()=> {
+				// 新增断点
+				let all: Promise<[boolean , string|gdbModel.Breakpoint]>[] = [];
+				breakPointDatas.forEach(bp => {
+					if (this.gdb.getVarifyLine(bp.filePath,bp.lineNum)) {
+						all.push(this.gdb.addBreakpoint(bp));
 					} else {
-						breakpoint = new Breakpoint(false);
+						let r: [boolean, string|gdbModel.Breakpoint] = [false,null];
+						all.push(Promise.resolve(r))
 					}
-					breakpoints.push(breakpoint);
 				})
-				response.body = {
-					breakpoints: breakpoints
-				}
-				this.sendResponse(response);
-				logger.info('设置断点成功');
+
+				// 如果有一个为false,都会被拒绝
+				Promise.all(all).then((bps) => {
+					let breakpoints: Breakpoint[] = [];
+					bps.forEach(tup => {
+						logger.info('tup: ', JSON.stringify(tup))
+						let breakpoint: Breakpoint = null;
+						if (tup[0]) {
+							let line = (tup[1] as gdbModel.Breakpoint).line;
+							// let source: Source = new Source()
+							breakpoint = new Breakpoint(true, line);
+						} else {
+							breakpoint = new Breakpoint(false);
+						}
+						breakpoints.push(breakpoint);
+					})
+					response.body = {
+						breakpoints: breakpoints
+					}
+					this.sendResponse(response);
+					logger.info('设置断点成功');
+				})
+			},(error) => {
+				this.sendErrorResponse(response,12,error);
 			})
-		},(error) => {
-			this.sendErrorResponse(response,12,error);
+		}, error => {
+			this.sendErrorResponse(response, 19,`${error}`);
 		})
 	}
 

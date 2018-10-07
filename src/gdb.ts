@@ -21,6 +21,8 @@ export class GDB extends EventEmitter {
     private pendingRequest: Map<number, Function> = new Map();
     private breakpoints: Breakpoint[] = new Array();
     private bufferData: string;
+    // 文件的所有有效行集合
+    private varifyLineMap: Map<string, Array<number>> = new Map();
 
     constructor(gdbProcess: ChildProcess) {
         super();
@@ -207,6 +209,7 @@ export class GDB extends EventEmitter {
     }
 
     public addBreakpoint(breakPointData: BreakpointData): Promise<[boolean, Breakpoint|string]> {
+
         let command = 'break-insert';
         if (!breakPointData.enabled) {
             command += ' -d';
@@ -492,6 +495,43 @@ export class GDB extends EventEmitter {
                 }
             }, rej);
         });
+    }
+
+    public verifyLine(path: string) {
+            if (this.varifyLineMap.has(path)) {
+                return Promise.resolve(true);
+            }
+            let command = `data-disassemble -f ${path} -l 1 -- 1`;
+            return this.sendMICommand(command).then((record) => {
+                if (record.resultRecord.resultClass === 'done') {
+                    // 处理数据
+                    let asm_insns: [] = record.resultRecord.result['asm_insns'];
+                    asm_insns.forEach(element => {
+                        // 有效行判断
+                        let line_asm_insn: [] = element['line_asm_insn'];
+                        if (line_asm_insn.length > 0) {
+                            if (this.varifyLineMap.has(path)) {
+                                this.varifyLineMap.get(path).push(Number(element['line']));
+                            } else {
+                                this.varifyLineMap.set(path, []);
+                                this.varifyLineMap.get(path).push(Number(element['line']));
+                            }
+                        }
+                    });
+                    return Promise.resolve(true);
+                }
+            },rej => {
+                logger.info(`path: ${path} 命令执行失败，${rej}`);
+                return Promise.reject(rej);
+            })
+    }
+
+    public getVarifyLine(path: string, line: number) {
+        if (!this.varifyLineMap.has(path)) {
+            throw '还没有校验该路径';
+        }
+
+        return this.varifyLineMap.get(path).indexOf(line) >= 0;
     }
 }
 
