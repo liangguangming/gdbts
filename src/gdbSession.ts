@@ -12,7 +12,10 @@ import logger from './log';
 import { create, GDB } from './gdb'
 import * as gdbModel from './gdbModel'
 
-const LOCALREFERENCE = 512*512;
+const LOCALREFERENCE = 100;
+const variableReferenceRegexp = /^(\d\d\d)(\d\d)(\d\d)(\d+)/
+
+// variableReference = 10001023  // 局部变量(100) 线程: 01 frame: 02 变量: 3
 
 // 错误： 11： 变量抓取失败
 /**
@@ -32,7 +35,9 @@ class GDBSession extends DebugSession {
 	private gdb: GDB;
 	private requestNum = 1;
 	private variableMap: Map<number,string> = new Map();
-	private rootVariablesName: string[] = [];
+
+	// key为threadId,value 为线程底下所有rootVariableName;
+	private rootVariablesNameMap: Map<number,string[]>= new Map();
 
 	constructor() {
 		super();
@@ -56,6 +61,22 @@ class GDBSession extends DebugSession {
 
 	private removeAllListener() {
 		this.gdb.removeAllListeners();
+	}
+
+	private parseVariableReference(variableReference: number) {
+		let refMatch = variableReferenceRegexp.exec(variableReference.toString());
+		let scope = Number(refMatch[1]);
+		let thread = Number(refMatch[2]);
+		let frameLevel = Number(refMatch[3]);
+		let variable = Number(refMatch[4]);
+		let tuple: [number, number, number, number] = [scope,thread,frameLevel,variable];
+		return tuple;
+	}
+
+	private convertVariableReference(scope: number,thread: number, frameLevel: number, variable: number) {
+		let threadStr = (thread>9)? thread.toString(): '0' + thread;
+		let frameLevelStr = (frameLevel>9)? frameLevel.toString(): '0' + frameLevel;
+		return Number(scope.toString() + threadStr + frameLevelStr + variable.toString());
 	}
 
 	private getVariableName(variableReference: number) {
@@ -185,10 +206,12 @@ class GDBSession extends DebugSession {
 					source.path = source.path.replace(/\\\\/g, '\\');
 					logger.info('source.path: ', source.path);
 				}
+				let thread = (threadId>9)? threadId.toString(): ('0' + threadId);
+				let level = (Number(frame.level)>9)? frame.level: ('0' + frame.level);
 				let stackFrame: DebugProtocol.StackFrame = {
 					line: frame.line? Number(frame.line):null,
 					name: frame.func,
-					id: frame.level? Number(frame.level): null,
+					id: Number(LOCALREFERENCE.toString() + thread + level + '0'),
 					column: 0,
 					source: source
 				}
@@ -235,15 +258,23 @@ class GDBSession extends DebugSession {
 	// 抓取变量范围
 	protected scopesRequest(response: DebugProtocol.ScopesResponse, args: DebugProtocol.ScopesArguments): void {
 		let frameId = args.frameId;
+		let scopeLocal,thread,frameLevel,variableNum;
+		// 解析frameId
+		[scopeLocal,thread,frameLevel,variableNum] = this.parseVariableReference(frameId);
 		// 先清理数据再响应
 		let all: Promise<any>[] = [];
-		this.rootVariablesName.forEach((name) => {
-			all.push(this.gdb.deleteVariable(name));
-		})
+		if (this.rootVariablesNameMap.has(thread)) {
+			this.rootVariablesNameMap.get(thread).forEach((name) => {
+				all.push(this.gdb.deleteVariable(name));
+			})
+		}
 		Promise.all(all).then(()=> {
+			if (this.rootVariablesNameMap.has(thread)) {
+				this.rootVariablesNameMap.set(thread, []);
+			}
 			let scope: DebugProtocol.Scope = {
 				name: 'Locals',
-				variablesReference: LOCALREFERENCE,
+				variablesReference: frameId,
 				expensive: false
 			}
 			response.body = {
@@ -259,15 +290,23 @@ class GDBSession extends DebugSession {
 	// 抓取变量
 	protected variablesRequest(response: DebugProtocol.VariablesResponse, args: DebugProtocol.VariablesArguments): void {
 		let variablesReference = args.variablesReference;
+		let scope,thread,frameLevel,variableNum;
+		[scope,thread,frameLevel,variableNum] = this.parseVariableReference(variablesReference);
 		let variables: Variable[] = [];
-		if (variablesReference === LOCALREFERENCE) {
-			let count = 1;
-			this.gdb.fetchVariable().then((vars) => {
+		if (scope === LOCALREFERENCE && variableNum === 0) {
+			this.gdb.fetchVariable(thread, frameLevel).then((vars) => {
 				vars.forEach(v => {
 					let variable: Variable = null;
-					this.rootVariablesName.push(v.name);
+					if (this.rootVariablesNameMap.has(thread)) {
+						this.rootVariablesNameMap.get(thread).push(v.name);
+					} else {
+						this.rootVariablesNameMap.set(thread, []);
+						this.rootVariablesNameMap.get(thread).push(v.name);
+					}
+					
 					if (Number(v.numchild)>0) {
-						let ref = Number(LOCALREFERENCE + `${count++}`);
+						++variableNum
+						let ref = this.convertVariableReference(LOCALREFERENCE,thread,frameLevel,variableNum);
 						variable = new Variable(v.name,v.value,	ref);
 						this.variableMap.set(ref, v.name);
 					} else {
@@ -284,15 +323,15 @@ class GDBSession extends DebugSession {
 			}, (error) => {
 				this.sendErrorResponse(response,12,error);
 			})
-		} else if(variablesReference > LOCALREFERENCE) {
+		} else if(scope === LOCALREFERENCE && variableNum > 0) {
 			let name = this.getVariableName(variablesReference);
-			let count = 1;
 			this.gdb.getChildVariables(name).then((vars)=>{
 				try {
 					vars.forEach(v => {
 						let variable: Variable = null;
 						if (Number(v.numchild)>0) {
-							let ref = Number(LOCALREFERENCE + `${count++}`);
+							++variableNum;
+							let ref = this.convertVariableReference(LOCALREFERENCE,thread,frameLevel,variableNum);;
 							variable = new Variable(v.name,v.value,	ref);
 							this.variableMap.set(ref, v.parentName);
 						} else {
@@ -330,7 +369,8 @@ class GDBSession extends DebugSession {
 
 	// 下一步执行
 	protected nextRequest(response: DebugProtocol.NextResponse, args: DebugProtocol.NextArguments): void {
-		this.gdb.next().then(()=> {
+		let threadId = args.threadId;
+		this.gdb.next(threadId).then(()=> {
 			this.sendResponse(response);
 		}, (error) => {
 			this.sendErrorResponse(response, 15, error);

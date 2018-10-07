@@ -290,8 +290,8 @@ export class GDB extends EventEmitter {
         });
     }
 
-    public next() {
-        let command = 'exec-next';
+    public next(threadId: number) {
+        let command = `exec-next --thread ${threadId}`;
         return new Promise((res, rej) => {
             this.sendMICommand(command).then(record => {
                 if (record.resultRecord.resultClass === 'running') {
