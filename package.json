@@ -68,6 +68,7 @@
 		"postinstall": "node ./node_modules/vscode/bin/install",
 		"start": "ts-node src/gdb.ts",
 		"test": "ts-node src/test/test.ts",
-		"package": "vsce package"
+		"package": "vsce package",
+		"parserTest": "ts-node src/test/parserTest.ts"
 	}
 }

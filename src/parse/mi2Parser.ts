@@ -1,6 +1,5 @@
 import { OutOfBandRecord, ResultRecord, Record } from "./outputModel";
 import logger from "../log";
-// import * as fs from 'fs';
 
 const outOfBandRecordRegexp = /^(?:(\d+)*([\*\+\=])|([\~\@\&]))/;
 const resultRecordRegexp = /^(\d*)\^(done|running|connected|error|exit)/;
@@ -43,12 +42,17 @@ export class Parser {
         let variableStack = new Array<Variable>();
 
         let parseString = function () {
-            let valueMatch = stringRegexp.exec(info);
             let value: string;
-            value = valueMatch[0].substring(1,valueMatch[0].length-1);
+            if (info[1] === '"') {
+                value = "";
+                info = info.substr(2);
+            } else {
+                let valueMatch = stringRegexp.exec(info);
+                value = valueMatch[0].substring(1,valueMatch[0].length-1);
+                info = info.substr(valueMatch[0].length);
+            }
             let stringVariable = variableStack.pop();
             stringVariable.value = value;
-            info = info.substr(valueMatch[0].length);
             if (variableStack.length>0) {
                 if (variableStack[variableStack.length - 1].type === 'object') {
                     variableStack[variableStack.length - 1].value[stringVariable.name] = stringVariable.value;
@@ -273,7 +277,3 @@ export class Parser {
         return null;
     }
 }
-
-// let info = fs.readFileSync('testData.txt');
-
-// fs.writeFileSync('record.json', JSON.stringify(Parse.parse(info.toString())))

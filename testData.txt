@@ -1,0 +1,1 @@
+^done,bkpt={number="1",type="breakpoint",disp="keep",enabled="y",addr="0x00401484",func="main",file="",fullname="C:\\Users\\ming\\Desktop\\testGdb\\main.c",line="22",thread-groups=["i1"],times="0",original-location="C:\\Users\\ming\\Desktop\\testGdb\\main.c:22"}

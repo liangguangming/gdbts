@@ -38,6 +38,7 @@ class GDBSession extends DebugSession {
 
 	// key为threadId,value 为线程底下所有rootVariableName;
 	private rootVariablesNameMap: Map<number,string[]>= new Map();
+	private childVariableId = 1;
 
 	constructor() {
 		super();
@@ -242,8 +243,6 @@ class GDBSession extends DebugSession {
 					}
 					threads.push(t);
 				});
-			
-			// response.body.threads = threads;
 			response.body = {
 				threads: threads
 			}
@@ -305,8 +304,7 @@ class GDBSession extends DebugSession {
 					}
 					
 					if (Number(v.numchild)>0) {
-						++variableNum
-						let ref = this.convertVariableReference(LOCALREFERENCE,thread,frameLevel,variableNum);
+						let ref = this.convertVariableReference(LOCALREFERENCE,thread,frameLevel,this.childVariableId++);
 						variable = new Variable(v.name,v.value,	ref);
 						this.variableMap.set(ref, v.name);
 					} else {
@@ -330,8 +328,7 @@ class GDBSession extends DebugSession {
 					vars.forEach(v => {
 						let variable: Variable = null;
 						if (Number(v.numchild)>0) {
-							++variableNum;
-							let ref = this.convertVariableReference(LOCALREFERENCE,thread,frameLevel,variableNum);;
+							let ref = this.convertVariableReference(LOCALREFERENCE,thread,frameLevel,this.childVariableId++);
 							variable = new Variable(v.name,v.value,	ref);
 							this.variableMap.set(ref, v.parentName);
 						} else {
