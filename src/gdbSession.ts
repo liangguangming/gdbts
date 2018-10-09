@@ -313,10 +313,10 @@ class GDBSession extends DebugSession {
 				vars.forEach(v => {
 					let variable: Variable = null;
 					if (this.rootVariablesNameMap.has(thread)) {
-						this.rootVariablesNameMap.get(thread).push(v.name);
+						this.rootVariablesNameMap.get(thread).push(v.objName);
 					} else {
 						this.rootVariablesNameMap.set(thread, []);
-						this.rootVariablesNameMap.get(thread).push(v.name);
+						this.rootVariablesNameMap.get(thread).push(v.objName);
 					}
 					
 					if (Number(v.numchild)>0) {
@@ -398,24 +398,29 @@ class GDBSession extends DebugSession {
 		let expression = args.expression;
 		let scope,thread,frameLevel,variableNum;
 		[scope,thread,frameLevel,variableNum] = this.parseVariableReference(args.frameId);
-		this.gdb.createVariable(expression).then((variable) => {
-			let ref;
-			if (Number(variable.numchild)>0) {
-				ref = this.convertVariableReference(LOCALREFERENCE,thread,frameLevel,this.childVariableId++);
-				this.variableMap.set(ref, variable.objName);
-			} else {
-				ref = 0;
-			}
-			response.body = {
-				result: variable.value,
-				variablesReference: ref
-			}
-			logger.info("evaluateResponse:  ", JSON.stringify(response));
-			this.sendResponse(response);
-		}, error => {
-			this.sendErrorResponse(response,21,error);
-		})
-
+		this.gdb.selectThread(thread)
+		.then(()=>{
+			return this.gdb.selectFrame(frameLevel);
+		}, error => this.sendErrorResponse(response,23,error))
+		.then(()=> {
+			this.gdb.createVariable(expression).then((variable) => {
+				let ref;
+				if (Number(variable.numchild)>0) {
+					ref = this.convertVariableReference(LOCALREFERENCE,thread,frameLevel,this.childVariableId++);
+					this.variableMap.set(ref, variable.objName);
+				} else {
+					ref = 0;
+				}
+				response.body = {
+					result: variable.value,
+					variablesReference: ref
+				}
+				logger.info("evaluateResponse:  ", JSON.stringify(response));
+				this.sendResponse(response);
+			}, error => {
+				this.sendErrorResponse(response,21,error);
+			})
+		}, error => this.sendErrorResponse(response,21,error));
 	}
 
 	// 继续执行

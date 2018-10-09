@@ -518,6 +518,28 @@ export class GDB extends EventEmitter {
         })
     }
 
+    public selectFrame(frame: number) {
+        let command = `stack-select-frame ${frame}`;
+        this.sendMICommand(command).then((record) => {
+            if (record.resultRecord.resultClass === 'done') {
+                return Promise.resolve(true);
+            } else {
+                return Promise.reject('选择selectFrame失败');
+            }
+        }, error => Promise.reject(error));
+    }
+
+    public selectThread(threadId: number) {
+        let command = `thread-select ${threadId}`;
+        return this.sendMICommand(command).then((record) => {
+            if (record.resultRecord.resultClass === 'done') {
+                return Promise.resolve(true);
+            } else {
+                return Promise.reject('选择thread失败');
+            }
+        }, error => Promise.reject(error));
+    }
+
     public printfAllBreakpoints() {
         logger.info(this.breakpoints);
     }
