@@ -9,8 +9,9 @@ import {
     Handles } from 'vscode-debugadapter'
 import { DebugProtocol } from 'vscode-debugprotocol';
 import logger from './log';
-import { create, GDB } from './gdb'
-import * as gdbModel from './gdbModel'
+import { create, GDB } from './gdb';
+import * as gdbModel from './gdbModel';
+import { Record, IAsyncRecord, AsyncState , IStreamRecord, StreamType} from "./parse/outputModel";
 
 const LOCALREFERENCE = 100;
 const variableReferenceRegexp = /^(\d\d\d)(\d\d)(\d\d)(\d+)/
@@ -30,6 +31,7 @@ const variableReferenceRegexp = /^(\d\d\d)(\d\d)(\d\d)(\d+)/
  *  19: 校验断点失败
  *  20: 设置变量失败
  *  21: 评估变量值
+ *  24: 初始化失败
  */
     
 class GDBSession extends DebugSession {
@@ -59,6 +61,25 @@ class GDBSession extends DebugSession {
 				let exitEvent = new TerminatedEvent(false);
 				this.sendEvent(exitEvent);
 			});
+			this.gdb.addListener('stream', (streamRecord) => {
+				switch((streamRecord as IStreamRecord).streamType) {
+					case StreamType.CONSOLE: 
+						streamRecord.cString = streamRecord.cString.replace(/\\n/g,'\r\n').replace(/\\"/g,"\"");
+						let consoleEvent =  new OutputEvent(streamRecord.cString, 'console');
+						this.sendEvent(consoleEvent);
+						break;
+					case StreamType.LOG:
+						let logEvent =  new OutputEvent(streamRecord.cString, 'stdout');
+						this.sendEvent(logEvent);
+						break;
+					case StreamType.TARGET:
+						let targetEvent =  new OutputEvent(streamRecord.cString, 'telemetry');
+						this.sendEvent(targetEvent);
+						break;
+					default:
+						break;
+				}
+			})
 		}
 	}
 
@@ -123,9 +144,13 @@ class GDBSession extends DebugSession {
 
 		this.gdb = create(options);
 		this.registerListener();
-		this.gdb.setApplicationPath(target).then(() => {
-			this.sendEvent(new InitializedEvent());
-		});
+		this.gdb.setApplicationPath(target)
+		.then(() => {
+			this.gdb.init()
+			.then(() => {
+				this.sendEvent(new InitializedEvent());
+			}, error => this.sendErrorResponse(response,24,error))
+		}, error => this.sendErrorResponse(response,24,error));
 		this.once('start', () => {
 			logger.info('激活启动程序');
 			this.gdb.run().then(() => {
@@ -258,6 +283,9 @@ class GDBSession extends DebugSession {
 					}
 					threads.push(t);
 				});
+				threads = threads.sort((a,b) => {
+					return a.id - b.id;
+				})
 			response.body = {
 				threads: threads
 			}

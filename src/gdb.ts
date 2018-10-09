@@ -1,6 +1,6 @@
 import { ChildProcess, spawn } from "child_process";
 import { Parser } from "./parse/mi2Parser";
-import { Record, IAsyncRecord, AsyncState } from "./parse/outputModel";
+import { Record, IAsyncRecord, AsyncState , IStreamRecord, StreamType} from "./parse/outputModel";
 import * as fs from 'fs';
 import { Breakpoint, BreakpointData, Frame, Thread, Variable } from "./gdbModel";
 import logger from './log';
@@ -66,6 +66,10 @@ export class GDB extends EventEmitter {
                     && (outOfBandRecord.record as IAsyncRecord).asyncState === AsyncState.EXEC
                     && (outOfBandRecord.record as IAsyncRecord).asyncOutput.asyncClass === 'stopped') {
                     this.handleStopEvent(outOfBandRecord.record as IAsyncRecord);
+                }
+                if (outOfBandRecord.isStream) {
+                    let streamRecord = (outOfBandRecord.record as IStreamRecord);
+                    this.emit('stream', streamRecord);
                 }
             })
         }
@@ -179,6 +183,23 @@ export class GDB extends EventEmitter {
                 }
             }, rej);
         });
+    }
+
+    public createConsole() {
+        let command =  `gdb-set new-console on`;
+        return this.sendMICommand(command).then((record) => {
+            if (record.resultRecord.resultClass === 'done') {
+                return Promise.resolve();
+            }
+        }, error => {
+            return Promise.reject(error);
+        })
+    }
+
+    public init() {
+        return this.openTargetAsync(true).then(() => {
+            return this.createConsole();
+        }, error => Promise.reject(error));
     }
 
     public deleteVariable(name: string): Promise<any> {
@@ -569,6 +590,8 @@ export class GDB extends EventEmitter {
             if (this.varifyLineMap.has(path)) {
                 return Promise.resolve(true);
             }
+
+            //  -symbol-list-lines main.c  也能得到有效行验证，这个指令更加专注
             let command = `data-disassemble -f ${path} -l 1 -- 1`;
             return this.sendMICommand(command).then((record) => {
                 if (record.resultRecord.resultClass === 'done') {
