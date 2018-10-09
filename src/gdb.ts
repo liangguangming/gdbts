@@ -413,12 +413,13 @@ export class GDB extends EventEmitter {
     }
 
     public createVariable(name: string): Promise<Variable> {
-        let command = `var-create ${name} * ${name}`;
+        let command = `var-create - * ${name}`;
         return new Promise((res, rej) => {
             this.sendMICommand(command).then((record) => {
                 if (record.resultRecord.resultClass === 'done') {
                     let variable: Variable = {
-                        name: record.resultRecord.result['name'],
+                        objName: record.resultRecord.result['name'],
+                        name: name,
                         value: record.resultRecord.result['value'],
                         type: record.resultRecord.result['type'],
                         numchild: record.resultRecord.result['numchild'],
@@ -449,7 +450,7 @@ export class GDB extends EventEmitter {
                         let variables: [] = record.resultRecord.result['children'];
                         variables.forEach(variable => {
                             let childVariable: Variable = {
-                                parentName: variable['name'],
+                                objName: variable['name'],
                                 name: variable['exp'],
                                 value: variable['value'],
                                 type: variable['type'],
@@ -470,6 +471,51 @@ export class GDB extends EventEmitter {
                 }
             }, rej)
         });
+    }
+
+    public setVariable(name: string, expression: any) {
+
+        let command = `var-assign ${name} ${expression}`;
+        return this.sendMICommand(command)
+        .then((record) =>{
+            if (record.resultRecord.resultClass === 'done') {
+                // let updateVariableCommand = `var-update ${name}`;
+                // return this.sendMICommand(updateVariableCommand)
+                let value = record.resultRecord.result['value'];
+                return Promise.resolve(value);
+            } else {
+                return Promise.reject('更改变量名失败');
+            }
+        }, error => {
+            return Promise.reject(error);
+        })
+    }
+
+    public updateVariable(name: string) {
+        let command = `var-update ${name}`;
+        return this.sendMICommand(command).then((record) => {
+            if (record.resultRecord.resultClass === 'done') {
+                return Promise.resolve();
+            } else {
+               return Promise.reject('更新所有变量失败');
+            }
+        }, error => {
+           return Promise.reject(error);
+        })
+    }
+
+    public evaluate(expression: string) {
+        let command = `var-evaluate-expression ${expression}`;
+        return this.sendMICommand(command).then((record) => {
+            if (record.resultRecord.resultClass === 'done') {
+                let value = record.resultRecord.result['value'];
+                return Promise.resolve(value);
+            } else {
+                return Promise.reject('获取变量失败');
+            }
+        },error => {
+            return Promise.reject(error);
+        })
     }
 
     public printfAllBreakpoints() {

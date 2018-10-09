@@ -28,6 +28,8 @@ const variableReferenceRegexp = /^(\d\d\d)(\d\d)(\d\d)(\d+)/
  *  17： 跳出执行失败
  *  18: getScope fail
  *  19: 校验断点失败
+ *  20: 设置变量失败
+ *  21: 评估变量值
  */
     
 class GDBSession extends DebugSession {
@@ -80,6 +82,18 @@ class GDBSession extends DebugSession {
 		return Number(scope.toString() + threadStr + frameLevelStr + variable.toString());
 	}
 
+	private getVariableReference(name: string) {
+		let variableReference = 0;
+		this.variableMap.forEach((value,key) => {
+			logger.info('value: ',value, 'key: ',key);
+			if (value === name) {
+				variableReference = key;
+			}
+		});
+
+		return variableReference;
+	}
+
 	private getVariableName(variableReference: number) {
 		if (this.variableMap.has(variableReference)) {
 			return this.variableMap.get(variableReference);
@@ -93,6 +107,7 @@ class GDBSession extends DebugSession {
 		response.body.supportsConfigurationDoneRequest = true;
 		response.body.supportsConditionalBreakpoints = true;
 		response.body.supportsHitConditionalBreakpoints = true;
+		response.body.supportsSetVariable = true;
 		this.sendResponse(response);
 	}
 
@@ -288,6 +303,7 @@ class GDBSession extends DebugSession {
 
 	// 抓取变量
 	protected variablesRequest(response: DebugProtocol.VariablesResponse, args: DebugProtocol.VariablesArguments): void {
+		logger.info('variablesRequest args: ', JSON.stringify(args));
 		let variablesReference = args.variablesReference;
 		let scope,thread,frameLevel,variableNum;
 		[scope,thread,frameLevel,variableNum] = this.parseVariableReference(variablesReference);
@@ -306,7 +322,7 @@ class GDBSession extends DebugSession {
 					if (Number(v.numchild)>0) {
 						let ref = this.convertVariableReference(LOCALREFERENCE,thread,frameLevel,this.childVariableId++);
 						variable = new Variable(v.name,v.value,	ref);
-						this.variableMap.set(ref, v.name);
+						this.variableMap.set(ref, v.objName);
 					} else {
 						variable = new Variable(v.name, v.value);
 					}
@@ -323,6 +339,7 @@ class GDBSession extends DebugSession {
 			})
 		} else if(scope === LOCALREFERENCE && variableNum > 0) {
 			let name = this.getVariableName(variablesReference);
+			// this.gdb.updateVariable()
 			this.gdb.getChildVariables(name).then((vars)=>{
 				try {
 					vars.forEach(v => {
@@ -330,7 +347,7 @@ class GDBSession extends DebugSession {
 						if (Number(v.numchild)>0) {
 							let ref = this.convertVariableReference(LOCALREFERENCE,thread,frameLevel,this.childVariableId++);
 							variable = new Variable(v.name,v.value,	ref);
-							this.variableMap.set(ref, v.parentName);
+							this.variableMap.set(ref, v.objName);
 						} else {
 							variable = new Variable(v.name, v.value);
 						}
@@ -353,7 +370,53 @@ class GDBSession extends DebugSession {
 			logger.error(`获取变量error`);
 			this.sendErrorResponse(response,11,'没有抓取到相关数据');
 		}
-	}	
+	}
+
+	// 设置变量
+	protected setVariableRequest(response: DebugProtocol.SetVariableResponse, args: DebugProtocol.SetVariableArguments): void {
+		let name = this.getVariableName(args.variablesReference)?(this.getVariableName(args.variablesReference) + '.' + args.name): args.name;
+		let value = args.value;
+		this.gdb.setVariable(name,value).then((value) => {
+			response.body = {
+				value: value
+			}
+			this.sendResponse(response);
+		}, error => {
+			this.sendErrorResponse(response, 20, error);
+		})
+	}
+
+	// watch断点
+	protected setExpressionRequest(response: DebugProtocol.SetExpressionResponse, args: DebugProtocol.SetExpressionArguments): void {
+		let expression = args.expression;
+		let value = args.value;
+		logger.info('setExpressionRequest args: ',JSON.stringify(args));
+		return this.sendResponse(response);
+	}
+
+	protected evaluateRequest(response: DebugProtocol.EvaluateResponse, args: DebugProtocol.EvaluateArguments): void {
+		let expression = args.expression;
+		let scope,thread,frameLevel,variableNum;
+		[scope,thread,frameLevel,variableNum] = this.parseVariableReference(args.frameId);
+		this.gdb.createVariable(expression).then((variable) => {
+			let ref;
+			if (Number(variable.numchild)>0) {
+				ref = this.convertVariableReference(LOCALREFERENCE,thread,frameLevel,this.childVariableId++);
+				this.variableMap.set(ref, variable.objName);
+			} else {
+				ref = 0;
+			}
+			response.body = {
+				result: variable.value,
+				variablesReference: ref
+			}
+			logger.info("evaluateResponse:  ", JSON.stringify(response));
+			this.sendResponse(response);
+		}, error => {
+			this.sendErrorResponse(response,21,error);
+		})
+
+	}
 
 	// 继续执行
 	protected continueRequest(response: DebugProtocol.ContinueResponse, args: DebugProtocol.ContinueArguments): void {

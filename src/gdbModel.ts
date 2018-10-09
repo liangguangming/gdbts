@@ -44,7 +44,7 @@ export interface Thread {
 }
 
 export interface Variable {
-    parentName?: string;
+    objName?: string;
     name: string;
     value: string;
     numchild: string;
