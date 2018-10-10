@@ -298,8 +298,8 @@ export class GDB extends EventEmitter {
         });
     }
 
-    public continue() {
-        let command = 'exec-continue';
+    public continue(threadId: number) {
+        let command = `exec-continue --thread ${threadId}`;
         return new Promise((res, rej) => {
             this.sendMICommand(command).then(record => {
                 if (record.resultRecord.resultClass === 'running') {
@@ -324,8 +324,8 @@ export class GDB extends EventEmitter {
         });
     }
 
-    public stepIn() {
-        let command = 'exec-step';
+    public stepIn(threadId: number) {
+        let command = `exec-step --thread ${threadId}`;
         return new Promise((res, rej) => {
             this.sendMICommand(command).then(record => {
                 if (record.resultRecord.resultClass === 'running') {
@@ -337,8 +337,8 @@ export class GDB extends EventEmitter {
         });
     }
 
-    public stepOut() {
-        let command = 'exec-finish';
+    public stepOut(threadId: number) {
+        let command = `exec-finish --thread ${threadId}`;
         return new Promise((res, rej) => {
             this.sendMICommand(command).then(record => {
                 if (record.resultRecord.resultClass === 'running') {
@@ -350,8 +350,8 @@ export class GDB extends EventEmitter {
         });
     }
 
-    public interrupt() {
-        let command = 'exec-interrupt';
+    public interrupt(threadId: number) {
+        let command = `exec-interrupt --thread ${threadId}`;
         return new Promise((res, rej) => {
             this.sendMICommand(command).then(record => {
                 if (record.resultRecord.resultClass === 'done') {
@@ -592,21 +592,19 @@ export class GDB extends EventEmitter {
             }
 
             //  -symbol-list-lines main.c  也能得到有效行验证，这个指令更加专注
-            let command = `data-disassemble -f ${path} -l 1 -- 1`;
+            let command = `symbol-list-lines ${path}`;
             return this.sendMICommand(command).then((record) => {
                 if (record.resultRecord.resultClass === 'done') {
                     // 处理数据
-                    let asm_insns: [] = record.resultRecord.result['asm_insns'];
-                    asm_insns.forEach(element => {
-                        // 有效行判断
-                        let line_asm_insn: [] = element['line_asm_insn'];
-                        if (line_asm_insn.length > 0) {
-                            if (this.varifyLineMap.has(path)) {
-                                this.varifyLineMap.get(path).push(Number(element['line']));
-                            } else {
-                                this.varifyLineMap.set(path, []);
-                                this.varifyLineMap.get(path).push(Number(element['line']));
-                            }
+                    let lines: [] = record.resultRecord.result['lines'];
+                    lines.forEach(element => {
+                        if (this.varifyLineMap.has(path)) {
+                            let arrayLine = this.varifyLineMap.get(path);
+                            arrayLine.push(Number(element['line']));
+                            arrayLine = Array.from(new Set(arrayLine));
+                        } else {
+                            this.varifyLineMap.set(path, []);
+                            this.varifyLineMap.get(path).push(Number(element['line']));
                         }
                     });
                     return Promise.resolve(true);

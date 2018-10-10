@@ -453,7 +453,8 @@ class GDBSession extends DebugSession {
 
 	// 继续执行
 	protected continueRequest(response: DebugProtocol.ContinueResponse, args: DebugProtocol.ContinueArguments): void {
-		this.gdb.continue().then(()=> {
+		let threadId = args.threadId;
+		this.gdb.continue(threadId).then(()=> {
 			this.sendResponse(response);
 		},(error) => {
 			this.sendErrorResponse(response, 14, error);
@@ -472,7 +473,8 @@ class GDBSession extends DebugSession {
 
 	// 跳入执行
 	protected stepInRequest(response: DebugProtocol.StepInResponse, args: DebugProtocol.StepInArguments): void {
-		this.gdb.stepIn().then(()=> {
+		let threadId = args.threadId;
+		this.gdb.stepIn(threadId).then(()=> {
 			this.sendResponse(response);
 		}, (error) => {
 			this.sendErrorResponse(response, 16, error);
@@ -481,7 +483,8 @@ class GDBSession extends DebugSession {
 
 	// 跳出执行
     protected stepOutRequest(response: DebugProtocol.StepOutResponse, args: DebugProtocol.StepOutArguments): void {
-		this.gdb.stepOut().then(()=> {
+		let threadId = args.threadId;
+		this.gdb.stepOut(threadId).then(()=> {
 			this.sendResponse(response);
 		}, (error) => {
 			this.sendErrorResponse(response, 17, error);
@@ -490,7 +493,8 @@ class GDBSession extends DebugSession {
 
 	// 暂停执行
 	protected pauseRequest(response: DebugProtocol.PauseResponse, args: DebugProtocol.PauseArguments): void {
-		this.gdb.interrupt().then(()=> {
+		let threadId = args.threadId;
+		this.gdb.interrupt(threadId).then(()=> {
 			this.sendResponse(response);
 		}, (error) => {
 			this.sendErrorResponse(response, 18, error);
